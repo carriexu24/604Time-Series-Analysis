@@ -1,0 +1,180 @@
+---
+title: "SARIMAX"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+library(forecast)
+library(tseries)
+library(lmtest)
+library(vars)
+library(dplyr)
+library(magrittr)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+# read data
+data <- read.csv('train.csv', header = T)[1:288, ]
+train <- data[1:264,]
+valid <- data[265:288,]
+
+bankrupt.train <- ts(data=train$Bankruptcy_Rate, frequency = 12, start = c(1987, 1))
+population.train <- ts(data=train$Population, frequency = 12, start = c(1987, 1))
+house_price.train<- ts(data=train$House_Price_Index, frequency = 12, start = c(1987, 1))
+unemployment.train <- ts(data=train$Unemployment_Rate, frequency = 12, start = c(1987, 1))
+
+bankrupt.valid <- ts(data=valid$Bankruptcy_Rate, frequency = 12, start = c(2009, 1))
+population.valid <- ts(data=valid$Population, frequency = 12, start = c(2009, 1))
+house_price.valid<- ts(data=valid$House_Price_Index, frequency = 12, start = c(2009, 1))
+unemployment.valid <- ts(data=valid$Unemployment_Rate, frequency = 12, start = c(2009, 1))
+
+test <- read.csv('test.csv', header = T)
+population.test <- ts(data=test$Population, frequency = 12, start = c(2011, 1))
+house_price.test<- ts(data=test$House_Price_Index, frequency = 12, start = c(2011, 1))
+Unemployment_Rate.test <- ts(data=test$Unemployment_Rate, frequency = 12, start = c(2011, 1))
+```
+
+```{r}
+# get all SARIMAX models when d = 1, D = 1
+p <- c(0,1,2,3)
+q <- c(0,1,2,3)
+P <- c(0,1,2,3)
+Q <- c(0,1,2,3)
+final_data <- expand.grid(p=p,q=q,P=P,Q=Q)
+xreg.train <- list(data.frame(unemployment.train), data.frame(house_price.train), data.frame(population.train),
+                   data.frame(population.train,unemployment.train),
+                   data.frame(house_price.train,unemployment.train),
+                   data.frame(population.train, house_price.train),
+                   data.frame(population.train, house_price.train, unemployment.train))
+xreg.valid <- list(data.frame(unemployment.valid), data.frame(house_price.valid), data.frame(population.valid),
+                   data.frame(population.valid,unemployment.valid),
+                   data.frame(house_price.valid,unemployment.valid),
+                   data.frame(population.valid, house_price.valid),
+                   data.frame(population.valid, house_price.valid, unemployment.valid))
+
+pqPQ <- c()
+reg <- c()
+loglik <- c()
+aic <- c()
+fitted_rmse <- c()
+valid_rmse <- c()
+i <- 1
+while(i<=dim(final_data)[1]){
+   p <- final_data[i,1] 
+   q <- final_data[i,2]
+   P <- final_data[i,3]
+   Q <- final_data[i,4]
+   for(j in 1:7){
+        tryCatch({
+           fit.model <- arima(bankrupt.train,order = c(p,1,q), 
+                              seasonal = list(order = c(P,1,Q), period = 12), xreg = data.frame(xreg.train[j]), 
+                              method = 'CSS-ML')
+           pqPQ <- c(pqPQ, paste(c(p,q,P,Q), sep = '', collapse = ''))
+           reg <- c(reg, j)
+           loglik <- c(loglik, fit.model$loglik)
+           aic <- c(aic, fit.model$aic)
+           fitted_rmse <- c(fitted_rmse, sqrt(mean(fit.model$residuals^2)))
+           valid_rmse <- c(valid_rmse, sqrt(mean((forecast(fit.model, h = 24, xreg = data.frame(xreg.valid[j]))$mean - bankrupt.valid)^2)))
+        },warning =function(w){
+           print('Skipping to the next one...')
+        },error = function(w){
+           print('there is an error')
+        }
+        )
+   }
+   print(i)
+   i = i + 1
+}
+SARIMAXmd_df <- data.frame(pqPQ, reg, loglik, aic, fitted_rmse, valid_rmse) %>% arrange(valid_rmse)
+```
+
+```{r}
+# plot on both train set and valid set
+SARIMAX.model <- arima(bankrupt.train,order = c(3,1,3), 
+                       seasonal = list(order = c(2,1,3), period = 12), xreg = data.frame(unemployment.train), 
+                       method = 'CSS-ML')
+pred <- forecast(SARIMAX.model, h = 24, xreg = data.frame(unemployment.valid))
+print(paste(c('predictive rmse = ', sqrt(mean((pred$mean - bankrupt.valid)^2))),  sep = '', collapse = ''))
+plot(bankrupt.train)
+t <- seq(1987,2009,length=264)
+lines(bankrupt.train - SARIMAX.model$residuals~t, col = 'red')
+t.new <- seq(2009,2011,length=24)
+lines(pred$mean~t.new, col = 'red')
+lines(pred$lower[,2]~t.new, col = 'green')
+lines(pred$upper[,2]~t.new, col = 'blue')
+lines(bankrupt.valid~t.new, col = 'black')
+legend('topleft', legend = c('predict', 'lower limit', 'upper limit', 'observed'), 
+       col = c('red', 'green', 'blue', 'black'), lty = c(1,1,1,1))
+```
+
+```{r}
+# plot on the valid set
+plot(bankrupt.valid)
+t.new <- seq(2009,2011,length=24)
+lines(pred$mean~t.new, col = 'red')
+lines(pred$lower[,2]~t.new, col = 'green')
+lines(pred$upper[,2]~t.new, col = 'blue')
+legend('topleft', legend = c('predict', 'lower limit', 'upper limit', 'observed'), 
+       col = c('red', 'green', 'blue', 'black'), lty = c(1,1,1,1))
+```
+
+```{r}
+write.csv( bankrupt.train - SARIMAX.model$residuals, file = "SARIMX_fit_train.csv")
+write.csv(pred$mean, file = "SARIMAX_pred_valid.csv")
+```
+
+### i. Zero-Mean
+
+```{r}
+resi <- SARIMAX.model$residuals
+r <- resi/sd(resi)
+t.test(r)
+```
+
+### ii. Homoscedasticity
+
+```{r}
+#scatterplot of residuals vs t
+plot(r, type = 'p')
+abline(h = 0, col = 'red')
+abline(h = mean(r))
+```
+
+```{r}
+# test for homoscedasticity
+group <- c(rep(1,132),rep(2,132))
+bartlett.test(r,group)
+```
+
+### iii. Zero-Correlation
+
+```{r}
+#ACF plot of residuals
+acf(r, lag.max = 24)
+pacf(r, lag.max = 24)
+```
+
+```{r}
+Box.test(r, lag = 3, type = "Ljung")
+Box.test(r, lag = 5, type = "Ljung")
+Box.test(r, lag = 10, type = "Ljung")
+Box.test(r, lag = 20, type = "Ljung")
+```
+
+### iv. Normality
+
+```{r}
+#QQ-plot of residuals
+qqnorm(r)
+qqline(r)
+```
+
+```{r}
+#normality test
+normvec <- rnorm(length(r))
+ks.test(r, normvec)
+```
+
+

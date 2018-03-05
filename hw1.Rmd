@@ -1,0 +1,110 @@
+---
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+##2
+
+###(a)
+
+```{r}
+sales <- read.csv('/Users/chuanxu/Desktop/sales.csv', header = T) #read the data into R
+sales <- ts(sales, start = 1999, frequency = 12) #format as a time series object
+
+t <- time(sales) #extracting time
+t2 <- t^2
+#fit a "trend only" model where the trend component is quadratic in time
+reg0 <- lm(sales~t+t2)
+plot(sales)
+points(t,predict.lm(reg0),type='l',col='red')
+
+par(mfrow=c(2,2)) #Dividing the plotting page into 4 panels
+plot(reg0$fitted, reg0$residuals, main = "Residuals vs. Fitted Values", 
+     ylab = "Residuals", xlab = "Fitted Values") #plot of fitted values vs residuals
+abline(h = 0, col = "red", lwd = 2)
+qqnorm(reg0$residuals) #qq-plot of residuals
+#plotting the line, along which the dots in qq-plot should lie
+qqline(reg0$residuals, col = "red") 
+#plotting the residuals vs time
+plot(reg0$residuals, main = "Residuals vs. Time", ylab = "Residuals", xlab = "Time")
+abline(h = 0, col = "red", lwd = 2) #plotting a horizontal line at 0
+acf(reg0$residuals, main = "ACF Plot of Residuals") #sample acf plot of residuals
+```
+
+From the residuals vs. fitted values plot, we notice that the residuals "bounce randomly" and roughly form a "horizontal band" around the 0 line. This suggests that it's reasonable to assume the relationship is linear and the variances of the error terms are equal.
+
+The Q-Q plot shows that residual quantiles match with the theoretical normal quantiles, suggesting that the normality assumption is reasonable.
+
+From the residuals vs. time plot, we notice that there is "serial correlation" among the error terms, suggesting the assumption of independent error terms is violated.
+
+The ACF plot indicates there is "seasonality" among the error terms.
+
+###(b)
+
+```{r}
+month <- as.factor(cycle(sales)) #add a seasonal component to the model
+
+reg1 <- lm(sales~t+t2+month)
+plot(sales)
+points(t,predict.lm(reg1),type='l',col='red')
+
+par(mfrow=c(2,2)) #Dividing the plotting page into 4 panels
+plot(reg1$fitted, reg1$residuals, main = "Residuals vs. Fitted Values", 
+     ylab = "Residuals", xlab = "Fitted Values") #plot of fitted values vs residuals
+abline(h = 0, col = "red", lwd = 2)
+qqnorm(reg1$residuals) #qq-plot of residuals
+#plotting the line, along which the dots in qq-plot should lie
+qqline(reg1$residuals, col = "red") 
+#plotting the residuals vs time
+plot(reg1$residuals, main = "Residuals vs. Time", ylab = "Residuals", xlab = "Time")
+abline(h = 0, col = "red", lwd = 2) #plotting a horizontal line at 0
+acf(reg1$residuals, main = "ACF Plot of Residuals") #sample acf plot of residuals
+```
+
+From the residuals vs. fitted values plot, we notice that the residuals "bounce randomly" and roughly form a "horizontal band" around the 0 line. This suggests that it's reasonable to assume the relationship is linear and the variances of the error terms are equal.
+
+The Q-Q plot shows that residual quantiles match closely with the theoretical normal quantiles, suggesting that the normality assumption is reasonable.
+
+From the residuals vs. time plot, we notice that there is "serial correlation" among the error terms, suggesting the assumption of independent error terms is violated.
+
+The ACF plot implies there is autoressive process of order 3.
+
+###(c)
+
+The ACF plot of the model in (a) indicates there is "seasonality" among the error terms. The ACF plot of the model in (b) implies the series is stationary and there is autoressive process of order 3.
+
+###(d)
+
+None of the two models above satisfies the fundamental assumptions of least square regression since the error term is not independent.
+
+###(e)
+
+```{r}
+#Prediction in sales data
+t.new <- seq(2011,2014,length=36)[1:36] # Intoducing new time for forecatsting 3 years 
+t2.new <- t.new^2
+month.new <- factor(rep(1:12,3)) # Introducing the seasonal value for forecasting
+
+#Putting the values for forecasting into a dataframe
+new <- data.frame(t=t.new, t2=t2.new, month=month.new) 
+#Computing the prediction as well as prediction interval
+pred <- predict.lm(reg1,new,interval='prediction') 
+
+par(mfrow=c(1,1))
+plot(sales,xlim=c(1999,2014),ylim=c(0,90)) #plotting the data
+
+#adding a vertical line at the point where prediction starts
+abline(v=2011,col='blue',lty=2) 
+lines(pred[,1]~t.new,type='l',col='red') #plotting the predict
+lines(pred[,2]~t.new,col='green') #plotting lower limit of the prediction interval
+lines(pred[,3]~t.new,col='blue') #plotting upper limit of the  prediction interval
+legend(2000, 80, legend = c('predict', 'lower limit', 'upper limit'), 
+       col = c('red', 'green', 'blue'), lty = c(1,1,1))
+```
+
+###(f)
+
+Hypothese tests, confidence intervals and prediction intervals would no longer be valid.

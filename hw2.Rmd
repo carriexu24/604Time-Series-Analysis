@@ -1,0 +1,134 @@
+---
+title: "Addtional Problem"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+library(forecast)
+library(tseries)
+library(lmtest)
+library(ggplot2)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+##(a)
+
+```{r}
+adf.test(LakeHuron)
+L1 <- diff(LakeHuron)
+adf.test(L1)
+```
+
+Because now p-value is smaller than 0.01, the time series is stationary after differencing once.
+
+##(b)
+
+```{r}
+m1 <- arima(x = LakeHuron, order = c(1,1,0), method = "ML")
+m1
+```
+
+##(c)
+
+```{r}
+m2 <- arima(x = LakeHuron, order = c(2,1,0), method = "ML")
+m2
+```
+
+##(d)
+
+```{r}
+#likelihood ratio test
+lrtest(m1,m2)
+```
+
+Because it is significant, the null hypothesis is rejected. We believe AR(2) model is better than AR(1) model.
+
+##(e)
+
+Because in (d) the null hypothesis is rejected and the AIC and $\hat{\sigma}^2$ of AR(2) model are smaller than AR(1) model, AR(2) model will be "optimal".
+
+##(f)
+
+###i.
+
+```{r}
+#t-test for the residual to decide whether the mean of epsilons is 0
+t.test(m2$residuals)
+```
+
+Because p-value is 0.9968, we can not reject the null hypothesis. We believe the mean of error terms is 0.
+
+###ii.
+
+```{r}
+#scatterplot of residuals vs t
+plot(m2$residuals, type = 'p')
+abline(h = 0, col = 'red')
+abline(h = mean(m2$residuals))
+```
+
+From the plot, we can see that the residuals roughly form a "horizontal band" around the 0 line and the mean of the residuals is close to 0. This suggests that the mean of error terms is 0 and the variances of the error terms are equal.
+
+```{r}
+#test for homoscedasticity
+group1 <- data.frame(m2$residuals, groups = gl(2,49,98))
+bartlett.test(m2$residuals~groups, data = group1)
+group2 <- data.frame(m2$residuals, groups = gl(3,33,98))
+bartlett.test(m2$residuals~groups, data = group2)
+group3 <- data.frame(m2$residuals, groups = gl(4,25,98))
+bartlett.test(m2$residuals~groups, data = group3)
+group4 <- data.frame(m2$residuals, groups = gl(5,20,98))
+bartlett.test(m2$residuals~groups, data = group4)
+group5 <- data.frame(m2$residuals, groups = gl(6,17,98))
+bartlett.test(m2$residuals~groups, data = group5)
+group6 <- data.frame(m2$residuals, groups = gl(7,14,98))
+bartlett.test(m2$residuals~groups, data = group6)
+```
+
+Because only the p-value when we have two groups is about 0.02, other p-values are all greater than 0.1, we believe there is no heteroscedasticity.
+
+###iii.
+
+```{r}
+#ACF plot of residuals
+acf(m2$residuals)
+```
+
+From the plot, we can see that there is no significant correlation between residuals.
+
+```{r}
+Box.test(m2$residuals, lag = 1, type = "Ljung")
+Box.test(m2$residuals, lag = 5, type = "Ljung")
+Box.test(m2$residuals, lag = 10, type = "Ljung")
+Box.test(m2$residuals, lag = 20, type = "Ljung")
+```
+
+Because the p-value is greater than 0.5, we can not reject the null hypothesis. We believe there is no correlation between error terms.
+
+###iv.
+
+```{r}
+#QQ-plot of residuals
+qqnorm(m2$residuals)
+qqline(m2$residuals)
+```
+
+From the plot, we can see the distribution of the residuals is close to the normal distribution.
+
+```{r}
+#normality test
+normvec <- rnorm(length(m2$residuals))
+ks.test(m2$residuals, normvec)
+```
+
+Because the p-value is greater than 0.1, we can not reject the null hypothesis. We believe the normal distribution assumption is met.
+
+##(g)
+
+```{r}
+m2_fit <- LakeHuron - m2$residuals
+plot(LakeHuron)
+points(x = 1875:1972, y = m2_fit, type = 'l', col = 'red')
+```
+

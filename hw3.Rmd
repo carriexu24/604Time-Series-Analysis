@@ -1,0 +1,270 @@
+---
+title: "Addtional Problem"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+library(forecast)
+library(tseries)
+library(lmtest)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# 1. SARIMA fitting with the `beers.csv` dataset.
+
+## (a)
+
+```{r}
+beers <- ts(read.csv('beer.csv'), start = 1956, frequency = 12)
+# Because the variance is not constant, so we first take the log of the data.
+# From the plot, we can see there is trend.
+plot(log(beers))
+# The p-value is 0.99, so the time series is not stationary. 
+adf.test(log(beers), k = 20)
+```
+
+```{r}
+# After we difference once, we find there is no trend any more. d = 1. 
+# From the ACF plot, we find that there is seasonality and the lag is 12.
+beers_d1 <- diff(log(beers))
+par(mfrow=c(3,1))
+plot(beers_d1)
+acf(beers_d1, lag.max = 144)
+pacf(beers_d1, lag.max = 144)
+# The p-value of adf test is 0.01, so the time series is stationary.
+adf.test(beers_d1, k = 20)
+```
+
+```{r}
+# From the plots, we can see there is no seasonality, so D is 1.
+beers_d2 <- diff(beers_d1, lag = 12)
+par(mfrow=c(3,1))
+plot(beers_d2)
+acf(beers_d2, lag.max = 144)
+pacf(beers_d2, lag.max = 144)
+```
+
+```{r}
+# try different models
+m1 <- arima(log(beers), order = c(0,1,2), seasonal = list(order = c(2,1,2), period = 12), method = 'ML')
+m2 <- arima(log(beers), order = c(1,1,1), seasonal = list(order = c(2,1,2), period = 12), method = 'ML')
+m3 <- arima(log(beers), order = c(1,1,2), seasonal = list(order = c(2,1,2), period = 12), method = 'ML')
+```
+
+```{r}
+#likelihood ratio test
+lrtest(m1,m3)
+lrtest(m2,m3)
+```
+
+Because both tests are significant, so $SARIMA(1,1,2)\times(2,1,2)_{12}$ is better than $SARIMA(0,1,2)\times(2,1,2)_{12}$ and $SARIMA(1,1,1)\times(2,1,2)_{12}$. The “optimal” model is $SARIMA(1,1,2)\times(2,1,2)_{12}$. $p=1,d=1,q=2,P=2,D=1,Q=2,s=12$.
+
+## (b)
+
+```{r}
+plot(beers)
+lines(exp(log(beers) - m3$residuals), col = 'red')
+legend(1955, 200, legend = c('raw', 'fit'), col = c('black', 'red'), lty = c(1,1))
+```
+
+## (c)
+
+```{r}
+tsdiag(m3)
+```
+
+### i. Zero-Mean
+
+```{r}
+r <- m3$residuals/sd(m3$residuals)
+t.test(r)
+```
+
+\newpage
+### ii. Homoscedasticity
+
+```{r}
+#scatterplot of residuals vs t
+plot(r, type = 'p')
+abline(h = 0, col = 'red')
+abline(h = mean(r))
+```
+
+```{r}
+# test for homoscedasticity
+group <- c(rep(1,238),rep(2,238))
+bartlett.test(r,group)
+```
+
+\newpage
+### iii. Zero-Correlation
+
+```{r}
+#ACF plot of residuals
+acf(r)
+```
+
+```{r}
+Box.test(r, lag = 3, type = "Ljung")
+Box.test(r, lag = 5, type = "Ljung")
+```
+
+\newpage
+### iv. Normality
+
+```{r}
+#QQ-plot of residuals
+qqnorm(r)
+qqline(r)
+```
+
+```{r}
+#normality test
+normvec <- rnorm(length(r))
+ks.test(r, normvec)
+```
+
+From above plots and tests, we can see that the “optimal” model barely meets the assumptions. It won't effect the predicted values but we should be cautious to use this model to do hypothese tests or calculate confidence intervels. 
+
+\newpage
+# 2. Box-Jenkins and Holt-Winters forecasting with the `china.csv` dataset.
+
+## (1) Introduction
+
+```{r}
+china <- ts(read.csv('china.csv'))
+#split the data into the train set and valid set
+train <- ts(china[1:228], start = 1984, frequency = 12)
+valid <- ts(china[229:300], start = 2003, frequency = 12)
+plot(log(train))
+```
+
+Because the variance is not constant, so we first take the log of the data. From the plot, we can see there are both trend and seasonality.
+
+## (2) Main Sections
+
+### (a) Box-Jenkins Approach
+
+```{r}
+# After we difference once, there is no trend. d = 1.
+# The time series still has seasonality. The lag is 12.
+china_d1 <- diff(log(train))
+par(mfrow=c(3,1))
+plot(china_d1)
+acf(china_d1, lag.max = 144)
+pacf(china_d1, lag.max = 144)
+# The time series is stationary
+adf.test(china_d1, k = 20)
+```
+
+```{r}
+# After we difference, there is no seasonality. D = 1.
+china_d2 <- diff(china_d1, lag = 12)
+par(mfrow=c(3,1))
+plot(china_d2)
+acf(china_d2, lag.max = 144)
+pacf(china_d2, lag.max = 144)
+```
+
+```{r}
+# try different models
+m1 <- arima(log(train), order = c(0,1,1), seasonal = list(order = c(1,1,1), period = 12), method = 'ML')
+m2 <- arima(log(train), order = c(2,1,0), seasonal = list(order = c(1,1,1), period = 12), method = 'ML')
+m3 <- arima(log(train), order = c(2,1,1), seasonal = list(order = c(1,1,1), period = 12), method = 'ML')
+#likelihood ratio test
+lrtest(m1,m3)
+lrtest(m2,m3)
+```
+
+Because both tests are significant, so the “optimal” model is $SARIMA(2,1,1)\times(1,1,1)_{12}$. $p=2,d=1,q=1,P=1,D=1,Q=1,s=12$.
+
+#### Assumption tests
+
+```{r}
+tsdiag(m3)
+```
+
+##### i. Zero-Mean
+
+```{r}
+r <- m3$residuals/sd(m3$residuals)
+t.test(r)
+```
+
+##### ii. Homoscedasticity
+
+```{r}
+#scatterplot of residuals vs t
+plot(r, type = 'p')
+abline(h = 0, col = 'red')
+abline(h = mean(r))
+```
+
+```{r}
+#test for homoscedasticity
+group <- c(rep(1,114), rep(2,114))
+bartlett.test(r,group)
+```
+
+##### iii. Zero-Correlation
+
+```{r}
+#ACF plot of residuals
+acf(r)
+```
+
+```{r}
+Box.test(r, lag = 5, type = "Ljung")
+Box.test(r, lag = 10, type = "Ljung")
+```
+
+##### iv. Normality
+
+```{r}
+qqnorm(r) #QQ-plot of residuals
+qqline(r)
+```
+
+```{r}
+normvec <- rnorm(length(r))
+ks.test(r, normvec) #normality test
+```
+
+From above plots and tests, we can see that the “optimal” model meets the assumptions.
+
+#### Forecasts
+
+```{r}
+f <- forecast(object = m3, h = 72, level = 0.95)
+summary(f)
+pred <- exp(f$mean)
+lo <- exp(f$lower)
+hi <- exp(f$upper)
+t.new <- seq(2003,2009,length=72)
+plot(train)
+lines(pred~t.new, col = 'red')
+lines(lo~t.new, col = 'green')
+lines(hi~t.new, col = 'blue')
+lines(valid~t.new, col = 'black')
+legend(1985, 300, legend = c('predict', 'lower limit', 'upper limit', 'observed'), 
+       col = c('red', 'green', 'blue', 'black'), lty = c(1,1,1,1))
+```
+
+The predictive root mean squared error is `r sqrt(sum((pred - valid)^2) / length(pred))`.
+
+### (b) Holt-Winters Approach
+
+```{r}
+hw <- HoltWinters(x = train, alpha = 0.2, beta =  0.3, gamma = 0.8, seasonal = "mult") 
+plot(hw)
+summary(forecast(hw, h = 72))
+plot(forecast(hw, h = 72))
+lines(valid~t.new, col = 'black')
+legend(1984, 1300, legend = c('predict', 'observed'), col = c('blue', 'black'), lty = c(1,1))
+```
+
+The `china` data has both trend and seasonality and the variance is not constant, so we use Triple Exponential Smoothing (Multiplicative). After several times of tries, we find in the best model $\alpha=0.2,\beta=0.3,\gamma=0.8$. The RMSE is `r sqrt(sum((hw$fitted - train)^2) / length(hw$fitted))`. The predictive root mean squared error is `r sqrt(sum((forecast(hw, h = 72)$mean - valid)^2) / length(forecast(hw, h = 72)$mean))`, which is better than the model in Box-Jenkins approach.
+
+## (3)
+
+On the basis of predictive RMSE, the model in Holt-Winters Approach is preferred.

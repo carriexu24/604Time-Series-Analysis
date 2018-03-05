@@ -1,0 +1,200 @@
+---
+title: "VARX"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+library(forecast)
+library(tseries)
+library(lmtest)
+library(vars)
+library(dplyr)
+library(magrittr)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+# read train data and split it into train set and valid set
+data <- read.csv('train.csv', header = T)[1:288, ]
+train <- data[1:264,]
+valid <- data[265:288,]
+
+bankrupt.train <- ts(data=train$Bankruptcy_Rate, frequency = 12, start = c(1987, 1))
+population.train <- ts(data=train$Population, frequency = 12, start = c(1987, 1))
+house_price.train<- ts(data=train$House_Price_Index, frequency = 12, start = c(1987, 1))
+unemployment.train <- ts(data=train$Unemployment_Rate, frequency = 12, start = c(1987, 1))
+
+bankrupt.valid <- ts(data=valid$Bankruptcy_Rate, frequency = 12, start = c(2009, 1))
+population.valid <- ts(data=valid$Population, frequency = 12, start = c(2009, 1))
+house_price.valid<- ts(data=valid$House_Price_Index, frequency = 12, start = c(2009, 1))
+unemployment.valid <- ts(data=valid$Unemployment_Rate, frequency = 12, start = c(2009, 1))
+```
+
+```{r}
+# get all VARX models and find the best ones using preditive rmse on valid set
+vary <- list(data.frame(bankrupt.train, population.train, house_price.train),
+             data.frame(bankrupt.train, population.train, unemployment.train),
+             data.frame(bankrupt.train, house_price.train, unemployment.train),
+             data.frame(bankrupt.train, house_price.train), data.frame(bankrupt.train, population.train), data.frame(bankrupt.train, unemployment.train))
+
+varexo.train <- list(data.frame(X1 = unemployment.train), data.frame(X1 = house_price.train), data.frame(X1 = population.train),
+                   data.frame(X1 = population.train, X2 = unemployment.train),
+                   data.frame(X1 = house_price.train, X2 = unemployment.train),
+                   data.frame(X1 = population.train, X2 = house_price.train))
+varexo.valid <- list(data.frame(X1 = unemployment.valid),  data.frame(X1 = house_price.valid), data.frame(X1 = population.valid),
+                   data.frame(X1 = population.valid, X2 = unemployment.valid),
+                   data.frame(X1 = house_price.valid, X2 = unemployment.valid),
+                   data.frame(X1 = population.valid, X2 = house_price.valid))
+
+index <- c()
+p <- c()
+valid_rmse <- c()
+j <- 10
+while(j<=20){
+  i <- 1
+  while(i<=length(vary)){
+    tryCatch({
+               fit.model <- VAR(y = vary[[i]], lag.max = j, ic = "AIC", exogen = varexo.train[[i]])
+               valid_rmse <- c(valid_rmse, sqrt(mean((predict(fit.model, n.ahead = 24, dumvar = varexo.valid[[i]])$fcst$bankrupt.train[,1] - bankrupt.valid)^2)))
+               index <- c(index, i)
+               p <- c(p, fit.model$p)
+            },warning =function(w){
+               print('Skipping to the next one...')
+            },error = function(w){
+               print('there is an error')
+           }
+           )
+     i = i + 1
+  }
+  j = j + 1
+}
+VARXmd_df <- data.frame(index, p, valid_rmse) %>% arrange(valid_rmse)
+```
+
+```{r}
+# plot the best model on both train set and valid set
+varx.model <- VAR(y = data.frame(bankrupt.train, population.train), p = 14, exogen = data.frame(X1 = house_price.train, X2 = unemployment.train))
+pred <- predict(varx.model, n.ahead = 24, dumvar = data.frame(X1 = house_price.valid, X2 = unemployment.valid))
+print(paste(c('predictive rmse = ', sqrt(mean((pred$fcst$bankrupt.train[,1] - bankrupt.valid)^2))),  sep = '', collapse = ''))
+plot(bankrupt.train, xlim = c(2000, 2011), ylim = c(0, 0.050), ylab = 'Bankruptcy_Rate', main='best VARX model trained on the training set')
+t <- seq(1987,2009,length=264)[15:264]
+lines(varx.model$varresult$bankrupt.train$fitted.values~t, col = 'red')
+t.new <- seq(2009,2011,length=24)
+b_mean <- pred$fcst$bankrupt.train[,1]
+b_lo <- pred$fcst$bankrupt.train[,2]
+b_hi <- pred$fcst$bankrupt.train[,3]
+lines(b_mean~t.new, col = 'red')
+lines(b_lo~t.new, col = 'green')
+lines(b_hi~t.new, col = 'blue')
+lines(bankrupt.valid~t.new, col = 'black')
+legend('bottomleft', legend = c('predict', 'lower limit', 'upper limit', 'observed'), 
+       col = c('red', 'green', 'blue', 'black'), lty = c(1,1,1,1))
+
+```
+
+```{r}
+# plot the best model on valid set
+plot(bankrupt.valid)
+t.new <- seq(2009,2011,length=24)
+b_mean <- pred$fcst$bankrupt.train[,1]
+b_lo <- pred$fcst$bankrupt.train[,2]
+b_hi <- pred$fcst$bankrupt.train[,3]
+lines(b_mean~t.new, col = 'red')
+lines(b_lo~t.new, col = 'green')
+lines(b_hi~t.new, col = 'blue')
+legend('topleft', legend = c('predict', 'lower limit', 'upper limit', 'observed'), 
+       col = c('red', 'green', 'blue', 'black'), lty = c(1,1,1,1))
+```
+
+```{r}
+# read test data
+test <- read.csv('test.csv', header = T)
+population.test <- ts(data=test$Population, frequency = 12, start = c(2011, 1))
+house_price.test<- ts(data=test$House_Price_Index, frequency = 12, start = c(2011, 1))
+unemployment.test <- ts(data=test$Unemployment_Rate, frequency = 12, start = c(2011, 1))
+```
+
+```{r}
+# fit the final model and plot
+final.varx <- VAR(y = data.frame(data$Bankruptcy_Rate, data$Population), p = 14, exogen = data.frame(X1 = data$House_Price_Index, X2 = data$Unemployment_Rate))
+pred <- predict(final.varx, n.ahead = 24, dumvar = data.frame(X1 = house_price.test, X2 = unemployment.test))
+plot(ts(data$Bankruptcy_Rate, frequency = 12, start = c(1987, 1)), ylab = 'Bankruptcy_Rate', xlim = c(2000, 2013),  main='best VARX model trained on the whole data set')
+t <- seq(1987,2011,length=288)[15:288]
+lines(final.varx$varresult$data.Bankruptcy_Rate$fitted.values~t, col = 'red')
+t.new <- seq(2011,2013,length=24)
+b_mean <- pred$fcst$data.Bankruptcy_Rate[,1]
+b_lo <- pred$fcst$data.Bankruptcy_Rate[,2]
+b_hi <- pred$fcst$data.Bankruptcy_Rate[,3]
+lines(b_mean~t.new, col = 'red')
+lines(b_lo~t.new, col = 'green')
+lines(b_hi~t.new, col = 'blue')
+legend('topleft', legend = c('predict', 'lower limit', 'upper limit', 'observed'), 
+       col = c('red', 'green', 'blue', 'black'), lty = c(1,1,1,1))
+```
+
+```{r}
+write.csv(data.frame(predict = b_mean, lower = b_lo, upper = b_hi), col.names = True, file = "tabular.csv")
+write.table(b_mean, file = "predict.txt", row.names = F, col.names = F)
+```
+
+## Assumption tests
+
+### i. Zero-Mean
+
+```{r}
+resi <- final.varx$varresult$data.Bankruptcy_Rate$residuals
+r <- resi/sd(resi)
+t.test(r)
+```
+
+### ii. Homoscedasticity
+
+```{r}
+#scatterplot of residuals vs t
+par(mfrow=c(1,2))
+plot(r, type = 'p', main='residuals vs time')
+abline(h = 0, col = 'red')
+abline(h = mean(r))
+#QQ-plot of residuals
+qqnorm(r)
+qqline(r)
+```
+
+```{r}
+# test for homoscedasticity
+group <- c(rep(1,137),rep(2,137))
+bartlett.test(r,group)
+```
+
+### iii. Zero-Correlation
+
+```{r}
+#ACF plot of residuals
+par(mfrow=c(2,1))
+acf(r, lag.max = 24)
+pacf(r, lag.max = 24)
+```
+
+```{r}
+Box.test(r, lag = 3, type = "Ljung")
+Box.test(r, lag = 5, type = "Ljung")
+Box.test(r, lag = 10, type = "Ljung")
+Box.test(r, lag = 20, type = "Ljung")
+```
+
+### iv. Normality
+
+```{r}
+#QQ-plot of residuals
+qqnorm(r)
+qqline(r)
+```
+
+```{r}
+#normality test
+normvec <- rnorm(length(r))
+ks.test(r, normvec)
+```
+
+
